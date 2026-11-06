@@ -1,0 +1,149 @@
+{
+  "entities": {
+    "Banner": {
+      "title": "Banner",
+      "description": "Promotional festival banner and bumper offer card displayed in the home page carousel.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the banner document"
+        },
+        "festivalName": {
+          "type": "string",
+          "description": "Name of the festival or seasonal event (e.g. Diwali, Chhath Puja, Holi)"
+        },
+        "headline": {
+          "type": "string",
+          "description": "Primary banner headline"
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Secondary promo text or bumper offer title"
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "Public URL or local path for the banner graphic"
+        },
+        "badgeText": {
+          "type": "string",
+          "description": "Festive pill tag or badge text (e.g. DIWALI SPECIAL)"
+        },
+        "ctaText": {
+          "type": "string",
+          "description": "Call to action button label"
+        },
+        "categoryTarget": {
+          "type": "string",
+          "description": "Category to filter when user clicks the banner CTA"
+        },
+        "startDate": {
+          "type": "string",
+          "description": "ISO start date for automated seasonal scheduling (YYYY-MM-DD)"
+        },
+        "endDate": {
+          "type": "string",
+          "description": "ISO end date for automated seasonal scheduling (YYYY-MM-DD)"
+        },
+        "isActive": {
+          "type": "boolean",
+          "description": "Whether the banner is actively eligible for display"
+        },
+        "priority": {
+          "type": "number",
+          "description": "Display order priority (higher appears first)"
+        },
+        "accentColor": {
+          "type": "string",
+          "description": "Hex theme color for banner badges and highlights"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when banner was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when banner was last modified"
+        }
+      },
+      "required": ["festivalName", "imageUrl", "isActive", "priority"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Grocery catalog inventory item.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "unit": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "category": { "type": "string" },
+        "status": { "type": "string", "enum": ["Available", "Out of Stock", "Unavailable"] },
+        "description": { "type": "string" }
+      },
+      "required": ["name", "price", "category", "status"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Catalog product category.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "icon": { "type": "string" },
+        "normalizedName": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer purchase transaction and tracking record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "customerAddress": { "type": "string" },
+        "total": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["userId", "customerPhone", "customerAddress", "total", "status"]
+    },
+    "ShopControl": {
+      "title": "ShopControl",
+      "description": "Global store operational configuration and switches.",
+      "type": "object",
+      "properties": {
+        "isClosed": { "type": "boolean" },
+        "deliveryCharge": { "type": "number" },
+        "supportNumber": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/banners/{bannerId}": {
+      "schema": "Banner",
+      "description": "Collection of promotional and festive banners for home page auto-carousel. Can be updated at any time by administrators directly in Firebase or via Admin Dashboard."
+    },
+    "/products/{prodId}": {
+      "schema": "Product",
+      "description": "Grocery store inventory items."
+    },
+    "/categories/{catId}": {
+      "schema": "Category",
+      "description": "Product categories."
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Customer order records."
+    },
+    "/shopControl/{docId}": {
+      "schema": "ShopControl",
+      "description": "Global operational flags and store settings."
+    }
+  }
+}
