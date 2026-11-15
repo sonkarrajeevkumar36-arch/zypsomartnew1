@@ -25,6 +25,28 @@ interface RouteSummary {
   durationMins: number;
 }
 
+function LiveMapAutoCenter({
+  target,
+  disabled
+}: {
+  target: GeoCoords | null;
+  disabled: boolean;
+}) {
+  const map = useMap();
+  const lastCenteredRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!map || !target || disabled) return;
+    const key = `${target.lat},${target.lng}`;
+    if (lastCenteredRef.current === key) return;
+    lastCenteredRef.current = key;
+    map.panTo(target);
+    map.setZoom(15);
+  }, [map, target, disabled]);
+
+  return null;
+}
+
 function DeliveryRouteLayer({
   origin,
   destination,
@@ -220,7 +242,6 @@ export function OrderLiveMap({
           mapId="DEMO_MAP_ID"
           internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
           defaultCenter={mapCenter}
-          center={!routeSummary && resolvedDestination ? resolvedDestination : undefined}
           defaultZoom={mapZoom}
           gestureHandling="greedy"
           streetViewControl={false}
@@ -228,6 +249,10 @@ export function OrderLiveMap({
           fullscreenControl={false}
           className="w-full h-full"
         >
+          <LiveMapAutoCenter
+            target={resolvedDestination}
+            disabled={Boolean(routeSummary)}
+          />
           {storeLocation && (
             <AdvancedMarker
               position={storeLocation}

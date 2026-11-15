@@ -8,6 +8,8 @@ import diwaliRangoliAsset from '../assets/images/diwali_diyas_rangoli_1793719623
 import superSaverAsset from '../assets/images/super_saver_sale_1788545795226.jpg';
 
 export const FAST_FOOD_BANNER_IMAGE = '/assets/aistudio/image_37cea2b0_6411b6aa.jpg';
+export const STATIONERY_BANNER_IMAGE = '/assets/aistudio/Zypsomart_Stationery_Essentials_Banner_967f8149.png';
+export const BEAUTY_BANNER_IMAGE = '/assets/aistudio/Zypsomart_Beauty_Products_Delivered_471243e7.png';
 
 export {
   diwaliBannerAsset,
@@ -67,7 +69,41 @@ export const FAST_FOOD_BANNER_SLIDE: FestivalBanner = {
   accentColor: '#ea580c'
 };
 
+export const STATIONERY_BANNER_SLIDE: FestivalBanner = {
+  id: 'fest_stationery_essentials',
+  festivalName: 'Stationery Essentials',
+  headline: 'Stationery Products • अब और भी आसान!',
+  subtitle: 'पढ़ाई, ऑफिस और रोज़मर्रा के लिए सभी स्टेशनरी सामान एक ही जगह पर',
+  imageUrl: STATIONERY_BANNER_IMAGE,
+  badgeText: '✏️ STATIONERY • FAST DELIVERY',
+  ctaText: 'Order Now',
+  categoryTarget: 'Stationery',
+  startDate: '2026-11-01',
+  endDate: '2026-12-31',
+  isActive: true,
+  priority: 36,
+  accentColor: '#16a34a'
+};
+
+export const BEAUTY_BANNER_SLIDE: FestivalBanner = {
+  id: 'fest_beauty_cosmetics',
+  festivalName: 'Cosmetic & Beauty Care',
+  headline: 'Cosmetic Products • अब और भी सस्ती कीमत में!',
+  subtitle: 'अब घर बैठे पाएं, अपनी पसंद के सभी ब्यूटी और पर्सनल केयर प्रोडक्ट्स',
+  imageUrl: BEAUTY_BANNER_IMAGE,
+  badgeText: '✨ BEAUTY & CARE • AT YOUR DOORSTEP',
+  ctaText: 'Order Now',
+  categoryTarget: 'Beauty',
+  startDate: '2026-11-01',
+  endDate: '2026-12-31',
+  isActive: true,
+  priority: 37,
+  accentColor: '#15803d'
+};
+
 export const DEFAULT_FESTIVAL_BANNERS: FestivalBanner[] = [
+  BEAUTY_BANNER_SLIDE,
+  STATIONERY_BANNER_SLIDE,
   FAST_FOOD_BANNER_SLIDE,
   {
     id: 'fest_diwali_special',
@@ -178,11 +214,12 @@ export function ensureFeaturedBannerSlides(banners: FestivalBanner[]): FestivalB
   if (!Array.isArray(banners) || banners.length === 0) {
     return DEFAULT_FESTIVAL_BANNERS;
   }
-  const hasFastFoodSlide = banners.some(
-    (b) => b.id === FAST_FOOD_BANNER_SLIDE.id || b.imageUrl === FAST_FOOD_BANNER_IMAGE
+  const featuredSlides = [BEAUTY_BANNER_SLIDE, STATIONERY_BANNER_SLIDE, FAST_FOOD_BANNER_SLIDE];
+  const missingSlides = featuredSlides.filter(
+    (featured) => !banners.some((b) => b.id === featured.id || b.imageUrl === featured.imageUrl)
   );
-  if (hasFastFoodSlide) return banners;
-  return [FAST_FOOD_BANNER_SLIDE, ...banners];
+  if (missingSlides.length === 0) return banners;
+  return [...missingSlides, ...banners];
 }
 
 /**

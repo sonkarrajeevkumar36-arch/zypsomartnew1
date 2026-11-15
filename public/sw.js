@@ -104,11 +104,11 @@ self.addEventListener('fetch', (event) => {
             const responseToCache = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => {
               cache.put(event.request, responseToCache);
-            });
+            }).catch(() => {});
           }
           return networkResponse;
         })
-        .catch(() => cachedResponse);
+        .catch(() => cachedResponse || Response.error());
 
       return cachedResponse || fetchPromise;
     })

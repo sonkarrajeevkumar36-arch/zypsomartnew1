@@ -5,7 +5,9 @@ import {
   initializeFirestore,
   Firestore,
   doc,
-  getDocFromServer
+  getDocFromServer,
+  disableNetwork,
+  enableNetwork
 } from 'firebase/firestore';
 
 const defaultFirebaseConfig = {
@@ -29,13 +31,13 @@ const firebaseConfig = {
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Force HTTP long-polling to avoid WebChannel 10-second hangs inside iframes, proxies, or restricted mobile networks
+// Auto-detect buffering proxies with a 8s long-polling timeout (below the 10s offline heuristic)
 let dbInstance: Firestore;
 try {
   dbInstance = initializeFirestore(app, {
-    experimentalForceLongPolling: true,
+    experimentalAutoDetectLongPolling: true,
     experimentalLongPollingOptions: {
-      timeoutSeconds: 20
+      timeoutSeconds: 8
     },
     ignoreUndefinedProperties: true
   });
@@ -44,16 +46,51 @@ try {
 }
 export const db = dbInstance;
 
-// Verify Firestore connectivity non-blockingly at startup
+// Sync Firestore network state cleanly with browser online/offline events
+if (typeof window !== 'undefined') {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    disableNetwork(db).catch(() => {});
+  }
+  window.addEventListener('offline', () => {
+    disableNetwork(db).catch(() => {});
+  });
+  window.addEventListener('online', () => {
+    enableNetwork(db).catch(() => {});
+  });
+}
+
+// Verify Firestore connectivity non-blockingly at startup without spamming 10s watch-stream timeouts
 async function verifyFirestoreConnection() {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     return;
   }
+
+  let controller: AbortController | null = null;
+  let timerId: ReturnType<typeof setTimeout> | null = null;
+
   try {
+    if (typeof fetch === 'function' && typeof AbortController === 'function') {
+      controller = new AbortController();
+      timerId = setTimeout(() => controller?.abort(), 5000);
+      const pingUrl = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/shopControl/status?key=${encodeURIComponent(firebaseConfig.apiKey)}`;
+      const res = await fetch(pingUrl, { method: 'GET', signal: controller.signal });
+      if (!res.ok && res.status >= 500) {
+        console.warn('[Firestore Connectivity Notice]: Cloud Firestore returned status', res.status);
+        return;
+      }
+    }
     await getDocFromServer(doc(db, 'shopControl', 'status'));
   } catch (err: any) {
-    if (err?.code === 'unavailable' || (err instanceof Error && err.message.includes('the client is offline'))) {
+    if (
+      err?.name === 'AbortError' ||
+      err?.code === 'unavailable' ||
+      (err instanceof Error && (err.message.includes('the client is offline') || err.message.includes('Failed to fetch')))
+    ) {
       console.warn('[Firestore Connectivity Notice]: Client operating in offline mode until backend is reachable.');
+    }
+  } finally {
+    if (timerId !== null) {
+      clearTimeout(timerId);
     }
   }
 }

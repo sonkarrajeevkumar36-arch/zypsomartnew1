@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -184,6 +184,15 @@ export function OrdersModal({
   const [currentNow, setCurrentNow] = useState<number>(() => Date.now());
   const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
   const [expandedMaps, setExpandedMaps] = useState<Record<string, boolean>>({});
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    };
+  }, []);
 
   const toggleOrderItems = (orderId: string) => {
     setExpandedOrders((prev) => ({
@@ -202,6 +211,7 @@ export function OrdersModal({
   // Live timer tick so the 5-minute "Packaging" -> "On The Way" transition triggers dynamically
   useEffect(() => {
     if (!isOpen) return;
+    setCurrentNow(Date.now());
     const interval = setInterval(() => {
       setCurrentNow(Date.now());
     }, 3000);
@@ -217,7 +227,8 @@ export function OrdersModal({
       onSelectCategory(categoryName);
     }
     onClose();
-    setTimeout(() => {
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = setTimeout(() => {
       const section = document.getElementById('products-section');
       if (section) {
         section.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -227,9 +238,14 @@ export function OrdersModal({
 
   const handleCopyOrderId = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard?.writeText(id);
+    try {
+      navigator.clipboard?.writeText(id);
+    } catch {
+      // ignore clipboard errors in restricted frames
+    }
     setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = setTimeout(() => setCopiedId(null), 2000);
   };
 
   const getStatusBadge = (status: string) => {
@@ -422,7 +438,7 @@ export function OrdersModal({
                 {lang === 'hi' ? 'चालू' : 'Active'} (
                 {
                   orders.filter((o) => {
-                    const s = (o.status || '').toLowerCase().trim();
+                    const s = resolveEffectiveOrderStatus(o, currentNow);
                     return s === 'placed' || s === 'pending' || s === 'accepted' || s === 'packaging' || s === 'preparing' || s === 'packing' || s === 'out for delivery' || s === 'out_for_delivery' || s === 'on the way' || s === 'on_the_way';
                   }).length
                 }
@@ -450,7 +466,7 @@ export function OrdersModal({
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3 }}
-                className="h-full flex flex-col items-center justify-between text-center px-3 py-4 sm:py-6"
+                className="min-h-full flex flex-col items-center justify-between text-center px-3 py-4 sm:py-6"
               >
                 {/* Center Card */}
                 <div className="w-full flex flex-col items-center max-w-sm my-auto">
@@ -576,17 +592,9 @@ export function OrdersModal({
                 const step = getStepIndex(effectiveStatus);
 
                 let formattedDate = 'Just now';
-                if (order.createdAt?.toDate) {
-                  formattedDate = order.createdAt.toDate().toLocaleString(lang === 'hi' ? 'hi-IN' : 'en-IN', {
-                    day: '2-digit',
-                    month: 'short',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true
-                  });
-                } else if (order.createdAt?.seconds) {
-                  formattedDate = new Date(order.createdAt.seconds * 1000).toLocaleString(lang === 'hi' ? 'hi-IN' : 'en-IN', {
+                const createdMs = getTimestampMs(order.createdAt);
+                if (createdMs) {
+                  formattedDate = new Date(createdMs).toLocaleString(lang === 'hi' ? 'hi-IN' : 'en-IN', {
                     day: '2-digit',
                     month: 'short',
                     year: 'numeric',
@@ -634,7 +642,7 @@ export function OrdersModal({
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-black text-slate-800 tracking-tight font-mono">
-                            #{order.id.slice(-6).toUpperCase()}
+                            #{(order.id || '').slice(-6).toUpperCase()}
                           </span>
                           <button
                             type="button"

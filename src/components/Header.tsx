@@ -223,7 +223,7 @@ export function Header({
         <input
           type="text"
           placeholder={t('searchPlaceholder')}
-          className="w-full bg-slate-50 border border-slate-200 rounded-xl h-10 pl-9 pr-9 text-xs sm:text-sm font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-primary)]/20 transition-all shadow-none leading-normal"
+          className="w-full bg-slate-50 border border-slate-200 rounded-xl h-10 pl-9 pr-9 text-[16px] sm:text-sm font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-primary)]/20 transition-all shadow-none leading-normal"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
         />

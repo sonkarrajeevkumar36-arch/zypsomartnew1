@@ -11,8 +11,15 @@ if (typeof window !== 'undefined') {
   };
   const origConsoleError = console.error;
   console.error = (...args: unknown[]) => {
-    origConsoleError.apply(console, args);
     const msg = args.map((a) => String(a)).join(' ');
+    if (
+      msg.includes('Could not reach Cloud Firestore backend') ||
+      msg.includes("Backend didn't respond within 10 seconds")
+    ) {
+      console.warn(...args);
+      return;
+    }
+    origConsoleError.apply(console, args);
     if (msg.includes('OverQuotaMapError') || msg.includes('QuotaExceededError')) {
       window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
     }

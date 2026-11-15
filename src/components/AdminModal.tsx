@@ -34,7 +34,7 @@ import { signInWithEmailAndPassword } from 'firebase/auth';
 import { db, auth, getFriendlyErrorMessage } from '../firebase';
 import { Order, Product, Category, GeoCoords, Language, FestivalBanner } from '../types';
 import { DeliveryMapPicker } from './DeliveryMapPicker';
-import { DEFAULT_FESTIVAL_BANNERS } from '../utils/festivalScheduler';
+import { DEFAULT_FESTIVAL_BANNERS, harvestBannerAsset } from '../utils/festivalScheduler';
 import {
   saveBannerToFirestore,
   deleteBannerFromFirestore,
@@ -42,6 +42,7 @@ import {
   seedBannersCollectionToFirestore
 } from '../utils/bannerService';
 import storeUpiQrImage from '../assets/images/regenerated_image_1793187511318.jpg';
+import festiveGroceryAsset from '../assets/images/festive_grocery_offer_1788546873284.jpg';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -183,6 +184,33 @@ export function AdminModal({
     }
   }, [festivalBanners]);
 
+  // Keep settings & payment form inputs synchronized with live Firestore props
+  React.useEffect(() => {
+    setLogoInput(appLogoUrl || '');
+  }, [appLogoUrl]);
+
+  React.useEffect(() => {
+    setSupportInput(supportNumber || '8090315246');
+  }, [supportNumber]);
+
+  React.useEffect(() => {
+    setStoreCoordsInput(storeLocation || null);
+  }, [storeLocation]);
+
+  React.useEffect(() => {
+    setUpiIdInput(upiId || 'sonkarrajeevkumar36@okhdfcbank');
+    setUpiPayeeInput(upiPayeeName || 'Zypsomart');
+    setCodEnabled(enableCod !== false);
+    setOnlineEnabled(enableOnline !== false);
+    setUpiQrEnabled(enableUpiQr !== false);
+  }, [upiId, upiPayeeName, enableCod, enableOnline, enableUpiQr]);
+
+  React.useEffect(() => {
+    if (currentAdminEmail) {
+      setAdminAuthEmail(currentAdminEmail);
+    }
+  }, [currentAdminEmail]);
+
   const saveBannersList = async (updatedList: FestivalBanner[]) => {
     setIsSavingBanners(true);
     setAdminBanners(updatedList);
@@ -190,9 +218,7 @@ export function AdminModal({
       if (onSaveFestivalBanners) {
         await onSaveFestivalBanners(updatedList);
       } else {
-        for (const b of updatedList) {
-          await saveBannerToFirestore(b);
-        }
+        await Promise.all(updatedList.map((b) => saveBannerToFirestore(b)));
         await setDoc(
           doc(db, 'shopControl', 'status'),
           {
@@ -662,11 +688,11 @@ export function AdminModal({
 
         {/* Tab Buttons */}
         <div className="border-b border-slate-800 bg-slate-900/90 sticky top-0 z-30">
-          <div className="max-w-6xl mx-auto flex px-4">
+          <div className="max-w-6xl mx-auto flex px-2 sm:px-4 overflow-x-auto hide-scrollbar">
             <button
               type="button"
               onClick={() => setActiveTab('orders')}
-              className={`flex-1 py-3 text-xs font-black uppercase tracking-wider text-center border-b-2 transition-all cursor-pointer ${
+              className={`shrink-0 whitespace-nowrap px-3 sm:px-4 sm:flex-1 py-3 text-xs font-black uppercase tracking-wider text-center border-b-2 transition-all cursor-pointer ${
                 activeTab === 'orders'
                   ? 'text-green-400 border-green-500'
                   : 'text-slate-400 border-transparent hover:text-slate-200'
@@ -677,7 +703,7 @@ export function AdminModal({
             <button
               type="button"
               onClick={() => setActiveTab('inventory')}
-              className={`flex-1 py-3 text-xs font-black uppercase tracking-wider text-center border-b-2 transition-all cursor-pointer ${
+              className={`shrink-0 whitespace-nowrap px-3 sm:px-4 sm:flex-1 py-3 text-xs font-black uppercase tracking-wider text-center border-b-2 transition-all cursor-pointer ${
                 activeTab === 'inventory'
                   ? 'text-green-400 border-green-500'
                   : 'text-slate-400 border-transparent hover:text-slate-200'
@@ -688,7 +714,7 @@ export function AdminModal({
             <button
               type="button"
               onClick={() => setActiveTab('banners')}
-              className={`flex-1 py-3 text-xs font-black uppercase tracking-wider text-center border-b-2 transition-all cursor-pointer ${
+              className={`shrink-0 whitespace-nowrap px-3 sm:px-4 sm:flex-1 py-3 text-xs font-black uppercase tracking-wider text-center border-b-2 transition-all cursor-pointer ${
                 activeTab === 'banners'
                   ? 'text-amber-400 border-amber-500'
                   : 'text-slate-400 border-transparent hover:text-slate-200'
@@ -699,7 +725,7 @@ export function AdminModal({
             <button
               type="button"
               onClick={() => setActiveTab('payments')}
-              className={`flex-1 py-3 text-xs font-black uppercase tracking-wider text-center border-b-2 transition-all cursor-pointer ${
+              className={`shrink-0 whitespace-nowrap px-3 sm:px-4 sm:flex-1 py-3 text-xs font-black uppercase tracking-wider text-center border-b-2 transition-all cursor-pointer ${
                 activeTab === 'payments'
                   ? 'text-green-400 border-green-500'
                   : 'text-slate-400 border-transparent hover:text-slate-200'
@@ -710,7 +736,7 @@ export function AdminModal({
             <button
               type="button"
               onClick={() => setActiveTab('analytics')}
-              className={`flex-1 py-3 text-xs font-black uppercase tracking-wider text-center border-b-2 transition-all cursor-pointer ${
+              className={`shrink-0 whitespace-nowrap px-3 sm:px-4 sm:flex-1 py-3 text-xs font-black uppercase tracking-wider text-center border-b-2 transition-all cursor-pointer ${
                 activeTab === 'analytics'
                   ? 'text-green-400 border-green-500'
                   : 'text-slate-400 border-transparent hover:text-slate-200'
@@ -721,7 +747,7 @@ export function AdminModal({
             <button
               type="button"
               onClick={() => setActiveTab('settings')}
-              className={`flex-1 py-3 text-xs font-black uppercase tracking-wider text-center border-b-2 transition-all cursor-pointer ${
+              className={`shrink-0 whitespace-nowrap px-3 sm:px-4 sm:flex-1 py-3 text-xs font-black uppercase tracking-wider text-center border-b-2 transition-all cursor-pointer ${
                 activeTab === 'settings'
                   ? 'text-green-400 border-green-500'
                   : 'text-slate-400 border-transparent hover:text-slate-200'
@@ -740,7 +766,7 @@ export function AdminModal({
             <div className="space-y-6">
               {/* Admin Session Authorization Banner */}
               {!isDirectStoreAdmin ? (
-                <div className="bg-amber-950/40 border border-amber-500/40 p-3.5 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                <div className="bg-amber-950/40 border border-amber-500/40 p-3.5 rounded-2xl flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
                   <div className="flex items-start gap-2.5">
                     <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
                     <div>
@@ -748,17 +774,24 @@ export function AdminModal({
                         Store Admin Authorization Required: {currentAdminEmail ? `Currently signed in as ${currentAdminEmail}` : 'Currently Guest'}
                       </p>
                       <p className="text-amber-300/80 text-[11px] mt-0.5">
-                        Firestore security rules require the store administrator account (<strong className="text-white">sonkarrajeevkumar36@gmail.com</strong>) to update order statuses, approve/reject returns, and modify inventory.
+                        Firestore security rules require a store administrator account (<strong className="text-white">sonkarrajeevkumar36@gmail.com</strong> or <strong className="text-white">rajeevkumar59040@gmail.com</strong>) to update order statuses, approve/reject returns, and modify inventory.
                       </p>
                     </div>
                   </div>
                   <form onSubmit={handleAdminDirectLogin} className="flex flex-wrap items-center gap-2">
                     <input
+                      type="email"
+                      placeholder="Admin Email"
+                      value={adminAuthEmail}
+                      onChange={(e) => setAdminAuthEmail(e.target.value)}
+                      className="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-[16px] sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                    />
+                    <input
                       type="password"
                       placeholder="Admin Password"
                       value={adminAuthPassword}
                       onChange={(e) => setAdminAuthPassword(e.target.value)}
-                      className="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                      className="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-[16px] sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                     />
                     <button
                       type="submit"
@@ -780,14 +813,14 @@ export function AdminModal({
                   </form>
                 </div>
               ) : (
-                <div className="bg-emerald-950/30 border border-emerald-500/30 px-3.5 py-2.5 rounded-2xl flex items-center justify-between text-xs text-emerald-300">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    <span className="font-bold text-[11px]">
-                      Store Admin Active: <span className="text-white">sonkarrajeevkumar36@gmail.com</span>
+                <div className="bg-emerald-950/30 border border-emerald-500/30 px-3.5 py-2.5 rounded-2xl flex items-center justify-between gap-2 text-xs text-emerald-300">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="font-bold text-[11px] truncate">
+                      Store Admin Active: <span className="text-white">{currentAdminEmail}</span>
                     </span>
                   </div>
-                  <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
+                  <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/30 shrink-0">
                     Full Admin Access
                   </span>
                 </div>
@@ -843,11 +876,11 @@ export function AdminModal({
                         }`}
                       >
                         {/* Order Header */}
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap sm:flex-nowrap justify-between items-start gap-2.5">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-black text-white">
-                                #{order.id.slice(-6).toUpperCase()}
+                                #{(order.id || '').slice(-6).toUpperCase()}
                               </span>
                               <span
                                 className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-tight ${
@@ -880,11 +913,11 @@ export function AdminModal({
                             <p className="text-[11px] text-slate-400 font-medium mt-1">
                               Customer: <strong className="text-slate-200">{order.customerName}</strong> • 📞 {order.customerPhone}
                             </p>
-                            <p className="text-[11px] text-slate-400">
+                            <p className="text-[11px] text-slate-400 break-words">
                               📍 {order.customerAddress}
                             </p>
                           </div>
-                          <div className="text-right">
+                          <div className="text-right shrink-0">
                             <span className="text-sm font-black text-green-400 block">
                               ₹{order.total}
                             </span>
@@ -1352,8 +1385,11 @@ export function AdminModal({
                       <option value="piece">piece</option>
                       <option value="pack">pack</option>
                       <option value="bunch">bunch</option>
+                      <option value="meter">meter</option>
                       <option value="plate">plate</option>
                       <option value="dozen">dozen</option>
+                      <option value="pair">pair</option>
+                      <option value="box">box</option>
                     </select>
                   </div>
 
@@ -1929,7 +1965,7 @@ export function AdminModal({
                             </button>
                             <button
                               type="button"
-                              onClick={() => setBannerForm({ ...bannerForm, imageUrl: '/src/assets/images/festive_grocery_offer_1788546873284.jpg' })}
+                              onClick={() => setBannerForm({ ...bannerForm, imageUrl: festiveGroceryAsset })}
                               className="text-[10px] bg-slate-700 hover:bg-slate-600 px-2 py-0.5 rounded text-slate-200 transition-colors"
                             >
                               🎉 Festive Grocery
@@ -2130,14 +2166,14 @@ export function AdminModal({
                             </button>
                             <button
                               type="button"
-                              onClick={() => setQuickImageUrl('/src/assets/images/harvest_fresh_sale_1788545772060.jpg')}
+                              onClick={() => setQuickImageUrl(harvestBannerAsset)}
                               className="text-[10px] bg-slate-900 hover:bg-slate-700 px-2 py-1 rounded-lg border border-slate-700 text-slate-200 transition-colors cursor-pointer"
                             >
                               🌾 Harvest Fresh
                             </button>
                             <button
                               type="button"
-                              onClick={() => setQuickImageUrl('/src/assets/images/festive_grocery_offer_1788546873284.jpg')}
+                              onClick={() => setQuickImageUrl(festiveGroceryAsset)}
                               className="text-[10px] bg-slate-900 hover:bg-slate-700 px-2 py-1 rounded-lg border border-slate-700 text-slate-200 transition-colors cursor-pointer"
                             >
                               🎉 Festive Grocery

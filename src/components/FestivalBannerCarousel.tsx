@@ -35,6 +35,13 @@ export function FestivalBannerCarousel({
   const activeBanners = banners.length > 0 ? banners : [];
   const currentBanner = activeBanners[currentIndex] || activeBanners[0];
 
+  // Clamp currentIndex if activeBanners length shrinks dynamically
+  useEffect(() => {
+    if (activeBanners.length > 0 && currentIndex >= activeBanners.length) {
+      setCurrentIndex(0);
+    }
+  }, [activeBanners.length, currentIndex]);
+
   // Auto-slide every 5 seconds (paused on user hover or touch)
   useEffect(() => {
     if (activeBanners.length <= 1 || isPaused) return;

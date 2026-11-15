@@ -132,7 +132,7 @@ export function CartModal({
               <motion.div
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="h-full flex flex-col items-center justify-center text-center p-6"
+                className="min-h-full flex flex-col items-center justify-center text-center p-6"
               >
                 <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mb-4 text-green-600 shadow-inner">
                   <ShoppingCart className="w-10 h-10" />
@@ -162,9 +162,17 @@ export function CartModal({
                     >
                       <div className="w-14 h-14 bg-white rounded-xl p-1.5 flex items-center justify-center shrink-0 border border-slate-100">
                         <img
-                          src={item.imageUrl}
+                          src={item.imageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=200&auto=format&fit=crop&q=80'}
                           alt={item.name}
+                          referrerPolicy="no-referrer"
                           className="max-w-full max-h-full object-contain"
+                          onError={(e) => {
+                            const target = e.currentTarget as HTMLImageElement;
+                            if (!target.dataset.fallbackApplied) {
+                              target.dataset.fallbackApplied = 'true';
+                              target.src = 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=200&auto=format&fit=crop&q=80';
+                            }
+                          }}
                         />
                       </div>
 

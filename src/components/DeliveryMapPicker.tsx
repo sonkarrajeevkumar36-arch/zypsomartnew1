@@ -80,6 +80,16 @@ export function DeliveryMapPicker({
   });
 
   const sessionTokenRef = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
+  const hasAutoCenteredRef = useRef<boolean>(Boolean(location));
+
+  useEffect(() => {
+    if (location && !hasAutoCenteredRef.current) {
+      hasAutoCenteredRef.current = true;
+      setCameraTarget({ center: location, zoom: 16, viewport: null });
+    } else if (!location) {
+      hasAutoCenteredRef.current = false;
+    }
+  }, [location]);
 
   const resetSession = useCallback(() => {
     sessionTokenRef.current = null;
@@ -303,7 +313,7 @@ export function DeliveryMapPicker({
                 ? 'मोहल्ला, बाज़ार या लैंडमार्क खोजें...'
                 : 'Search area, street or landmark...'
             }
-            className={`w-full pl-8 pr-8 py-2 rounded-xl text-[15px] sm:text-xs font-medium outline-none border transition-all ${
+            className={`w-full pl-8 pr-8 py-2 rounded-xl text-[16px] sm:text-xs font-medium outline-none border transition-all ${
               isDark
                 ? 'bg-slate-950 border-slate-700 text-slate-100 placeholder:text-slate-500 focus:border-emerald-500'
                 : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20'

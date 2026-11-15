@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, RotateCcw, Package, AlertCircle } from 'lucide-react';
+import { X, RotateCcw, AlertCircle } from 'lucide-react';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth, getFriendlyErrorMessage } from '../firebase';
 import { Order, Language } from '../types';
@@ -11,7 +11,7 @@ interface ReturnOrderModalProps {
   isOpen: boolean;
   lang: Language;
   onClose: () => void;
-  onSuccess: (orderId: string) => void;
+  onSuccess: (orderId: string, returnReason?: string, returnNotes?: string) => void;
   onError: (errMsg: string) => void;
 }
 
@@ -26,6 +26,15 @@ export function ReturnOrderModal({
   const [reasonKey, setReasonKey] = useState<string>('damaged');
   const [notes, setNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // Reset form state whenever modal opens or targets a different order
+  useEffect(() => {
+    if (isOpen) {
+      setReasonKey('damaged');
+      setNotes('');
+      setIsSubmitting(false);
+    }
+  }, [isOpen, order?.id]);
 
   if (!isOpen || !order) return null;
 
@@ -44,7 +53,15 @@ export function ReturnOrderModal({
     e.preventDefault();
     if (isSubmitting) return;
 
-    if (!auth.currentUser) {
+    let guestId: string | null = null;
+    try {
+      guestId = localStorage.getItem('zypsum_guest_id');
+    } catch {
+      guestId = null;
+    }
+    const activeUid = auth.currentUser?.uid || guestId;
+
+    if (!activeUid) {
       onError(lang === 'hi' ? 'कृपया वापसी का अनुरोध करने के लिए पहले लॉगिन करें।' : 'Please sign in first to request an order return.');
       return;
     }
@@ -54,7 +71,10 @@ export function ReturnOrderModal({
       return;
     }
 
-    if (order.userId !== auth.currentUser.uid) {
+    const isOwner =
+      order.userId === activeUid ||
+      (guestId && order.userId === guestId);
+    if (!isOwner) {
       onError(lang === 'hi' ? 'आप केवल अपने स्वयं के ऑर्डर वापस कर सकते हैं।' : 'You can only request returns for your own orders.');
       return;
     }
@@ -69,36 +89,39 @@ export function ReturnOrderModal({
     try {
       const selectedReasonObj = reasons.find((r) => r.key === reasonKey);
       const returnReasonLabel = selectedReasonObj ? selectedReasonObj.label : reasonKey;
+      const trimmedNotes = notes.trim();
 
-      const orderRef = doc(db, 'orders', order.id);
-      const returnPayload = {
-        returnReason: returnReasonLabel,
-        returnReasonKey: reasonKey,
-        returnNotes: notes.trim(),
-        returnRequestedAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
+      if (!order.id.startsWith('ord_')) {
+        const orderRef = doc(db, 'orders', order.id);
+        const returnPayload = {
+          returnReason: returnReasonLabel,
+          returnReasonKey: reasonKey,
+          returnNotes: trimmedNotes,
+          returnRequestedAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
 
-      try {
-        await updateDoc(orderRef, {
-          ...returnPayload,
-          status: 'return_requested'
-        });
-      } catch (primaryErr: any) {
-        if (primaryErr?.code === 'permission-denied') {
-          // Fallback for cloud rules if they have not yet been updated from return_pending
+        try {
           await updateDoc(orderRef, {
             ...returnPayload,
-            status: 'return_pending',
-            requestedStatus: 'return_requested'
+            status: 'return_requested'
           });
-        } else {
-          throw primaryErr;
+        } catch (primaryErr: any) {
+          if (primaryErr?.code === 'permission-denied') {
+            // Fallback for cloud rules if they have not yet been updated from return_pending
+            await updateDoc(orderRef, {
+              ...returnPayload,
+              status: 'return_pending',
+              requestedStatus: 'return_requested'
+            });
+          } else {
+            throw primaryErr;
+          }
         }
       }
 
       setIsSubmitting(false);
-      onSuccess(order.id);
+      onSuccess(order.id, returnReasonLabel, trimmedNotes);
       onClose();
     } catch (err: any) {
       console.error('[Return Order Error]:', err);

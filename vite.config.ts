@@ -44,8 +44,18 @@ function razorpayDevPlugin() {
           }
 
           let bodyStr = '';
-          req.on('data', (chunk: any) => { bodyStr += chunk; });
+          let bodyTooLarge = false;
+          req.on('data', (chunk: any) => {
+            if (bodyTooLarge) return;
+            bodyStr += chunk;
+            if (bodyStr.length > 1024 * 1024) {
+              bodyTooLarge = true;
+              res.writeHead(413, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Payload too large' }));
+            }
+          });
           req.on('end', async () => {
+            if (bodyTooLarge) return;
             try {
               const body = bodyStr ? JSON.parse(bodyStr) : {};
               const keyId = process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID;
@@ -160,8 +170,18 @@ function razorpayDevPlugin() {
           }
 
           let bodyStr = '';
-          req.on('data', (chunk: any) => { bodyStr += chunk; });
+          let bodyTooLarge = false;
+          req.on('data', (chunk: any) => {
+            if (bodyTooLarge) return;
+            bodyStr += chunk;
+            if (bodyStr.length > 1024 * 1024) {
+              bodyTooLarge = true;
+              res.writeHead(413, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Payload too large' }));
+            }
+          });
           req.on('end', async () => {
+            if (bodyTooLarge) return;
             try {
               const body = bodyStr ? JSON.parse(bodyStr) : {};
               const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = body;
@@ -218,8 +238,18 @@ function razorpayDevPlugin() {
           }
 
           let bodyStr = '';
-          req.on('data', (chunk: any) => { bodyStr += chunk; });
+          let bodyTooLarge = false;
+          req.on('data', (chunk: any) => {
+            if (bodyTooLarge) return;
+            bodyStr += chunk;
+            if (bodyStr.length > 1024 * 1024) {
+              bodyTooLarge = true;
+              res.writeHead(413, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Payload too large' }));
+            }
+          });
           req.on('end', async () => {
+            if (bodyTooLarge) return;
             try {
               const signature = req.headers['x-razorpay-signature'];
               if (!signature) {

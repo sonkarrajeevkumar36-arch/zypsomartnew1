@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingCart, Package, Home as HomeIcon, RotateCcw, Clock, Lock, Sparkles, EyeOff, Eye, Download } from 'lucide-react';
-import { onAuthStateChanged, signOut, User, signInAnonymously } from 'firebase/auth';
+import { ShoppingCart, Package, Home as HomeIcon, Clock, Lock, EyeOff, Eye, Download } from 'lucide-react';
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import {
   collection,
   query,
@@ -26,9 +26,7 @@ import { getShuffledProducts } from './utils/productShuffle';
 import { DEFAULT_FESTIVAL_BANNERS, ensureFeaturedBannerSlides, resolveActiveFestivalBanners } from './utils/festivalScheduler';
 import { subscribeToBannersCollection, saveBannerToFirestore } from './utils/bannerService';
 import { Header } from './components/Header';
-import { Banner } from './components/Banner';
 import { CategoryList } from './components/CategoryList';
-import { SeasonalOffers } from './components/SeasonalOffers';
 import { FestivalBannerCarousel } from './components/FestivalBannerCarousel';
 import { BumperOffersSection } from './components/BumperOffersSection';
 import { ProductCard } from './components/ProductCard';
@@ -324,11 +322,12 @@ function ZypsomartAppContent({
       localStorage.setItem('zypsum_festival_banners_cache', JSON.stringify(banners));
     } catch {}
     try {
-      // 1. Save each individual banner as a distinct document in the dedicated 'banners' Firestore collection
-      for (const banner of banners) {
-        if (!banner.id) continue;
-        await saveBannerToFirestore(banner);
-      }
+      // 1. Save each individual banner in parallel to the dedicated 'banners' Firestore collection
+      await Promise.all(
+        banners
+          .filter((b) => Boolean(b?.id))
+          .map((banner) => saveBannerToFirestore(banner))
+      );
       // 2. Also update shopControl/status for legacy compatibility
       await setDoc(doc(db, 'shopControl', 'status'), { festivalBanners: banners }, { merge: true });
     } catch (err) {
@@ -663,10 +662,6 @@ function ZypsomartAppContent({
         setUserOrders([]);
         setOrderToReturn(null);
         setIsReturnModalOpen(false);
-
-        if (!user) {
-          signInAnonymously(auth).catch(() => {});
-        }
       } else {
         // Keep user reference updated without resetting state
         setCurrentUser(user);
@@ -678,7 +673,13 @@ function ZypsomartAppContent({
 
   // Sync user orders in real time with client-side sorting (supports registered & guest users)
   useEffect(() => {
-    const activeUid = currentUser?.uid || localStorage.getItem('zypsum_guest_id');
+    let guestId: string | null = null;
+    try {
+      guestId = localStorage.getItem('zypsum_guest_id');
+    } catch {
+      guestId = null;
+    }
+    const activeUid = currentUser?.uid || guestId;
     if (!activeUid) {
       setUserOrders([]);
       return;
@@ -691,14 +692,9 @@ function ZypsomartAppContent({
     }
 
     try {
-      const guestId = localStorage.getItem('zypsum_guest_id');
-      const currentUid = currentUser?.uid;
-      const uidsToQuery = Array.from(new Set([currentUid, guestId].filter(Boolean))) as string[];
-
-      const q =
-        uidsToQuery.length > 1
-          ? query(collection(db, 'orders'), where('userId', 'in', uidsToQuery), limit(50))
-          : query(collection(db, 'orders'), where('userId', '==', activeUid), limit(50));
+      // Query strictly by activeUid so Firestore security rules (`resource.data.userId == request.auth.uid`)
+      // never reject authenticated customers who also have an old guest ID in localStorage.
+      const q = query(collection(db, 'orders'), where('userId', '==', activeUid), limit(50));
 
       const unsub = onSnapshot(
         q,
@@ -719,17 +715,7 @@ function ZypsomartAppContent({
           const syncedOrders = [...firestoreOrders, ...unsyncedOfflineDrafts];
 
           // Sort client-side by creation timestamp to eliminate composite index requirement
-          syncedOrders.sort((a, b) => {
-            const getMillis = (val: any) => {
-              if (!val) return 0;
-              if (typeof val.toMillis === 'function') return val.toMillis();
-              if (val.seconds) return val.seconds * 1000;
-              if (val instanceof Date) return val.getTime();
-              if (typeof val === 'string') return new Date(val).getTime();
-              return 0;
-            };
-            return getMillis(b.createdAt) - getMillis(a.createdAt);
-          });
+          syncedOrders.sort((a, b) => getTimestampMs(b.createdAt) - getTimestampMs(a.createdAt));
 
           // Update state immediately so deleted orders vanish from the UI instantly
           setUserOrders(syncedOrders);
@@ -738,18 +724,6 @@ function ZypsomartAppContent({
           try {
             const key = getUserStorageKey(activeUid, 'local_orders');
             localStorage.setItem(key, JSON.stringify(syncedOrders));
-
-            // Also clean up guest key if current user is logged in
-            if (guestId && currentUid && guestId !== currentUid) {
-              const guestKey = getUserStorageKey(guestId, 'local_orders');
-              const guestOrders = loadLocalOrders(guestId);
-              const cleanedGuest = guestOrders.filter((o) => !firestoreOrders.some((f) => f.id === o.id) && o.id.startsWith('ord_'));
-              if (cleanedGuest.length > 0) {
-                localStorage.setItem(guestKey, JSON.stringify(cleanedGuest));
-              } else {
-                localStorage.removeItem(guestKey);
-              }
-            }
           } catch (cacheErr) {
             console.warn('[Orders Cache Sync Warning]:', cacheErr);
           }
@@ -767,34 +741,49 @@ function ZypsomartAppContent({
     } catch (err) {
       console.warn('[Orders Query Init Error]:', err);
     }
-  }, [currentUser, guestSessionId]);
+  }, [currentUser?.uid, guestSessionId]);
 
   // Auto-transition orders in 'packaging' / 'preparing' status to 'out for delivery' (On The Way) after 5 minutes
+  const attemptedAdvanceIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const checkAndAdvanceOrders = async () => {
-      const allOrders = [...userOrders, ...allAdminOrders];
-      const now = Date.now();
-      const updatedIds = new Set<string>();
+    const candidateOrders = [...userOrders, ...allAdminOrders].filter((order) => {
+      if (!order?.id || attemptedAdvanceIdsRef.current.has(order.id)) return false;
+      const s = (order.status || '').toLowerCase().trim();
+      return s === 'preparing' || s === 'packaging' || s === 'packing';
+    });
 
-      for (const order of allOrders) {
-        if (!order?.id || updatedIds.has(order.id)) continue;
-        const s = (order.status || '').toLowerCase().trim();
-        if (s === 'preparing' || s === 'packaging' || s === 'packing') {
-          const acceptedMs =
-            getTimestampMs(order.packagingAt) ||
-            getTimestampMs(order.acceptedAt) ||
-            getTimestampMs(order.updatedAt) ||
-            getTimestampMs(order.createdAt);
-          if (acceptedMs && now - acceptedMs >= 5 * 60 * 1000) {
-            updatedIds.add(order.id);
-            try {
-              await updateDoc(doc(db, 'orders', order.id), {
-                status: 'out for delivery',
-                updatedAt: serverTimestamp()
-              });
-            } catch (err) {
-              console.warn('[Auto Out-for-Delivery update notice]:', err);
-            }
+    if (candidateOrders.length === 0) return;
+
+    const checkAndAdvanceOrders = async () => {
+      const now = Date.now();
+      const processedThisCycle = new Set<string>();
+
+      for (const order of candidateOrders) {
+        if (!order?.id || processedThisCycle.has(order.id) || attemptedAdvanceIdsRef.current.has(order.id)) {
+          continue;
+        }
+        processedThisCycle.add(order.id);
+        const acceptedMs =
+          getTimestampMs(order.packagingAt) ||
+          getTimestampMs(order.acceptedAt) ||
+          getTimestampMs(order.updatedAt) ||
+          getTimestampMs(order.createdAt);
+
+        if (acceptedMs && now - acceptedMs >= 5 * 60 * 1000) {
+          attemptedAdvanceIdsRef.current.add(order.id);
+          if (order.id.startsWith('ord_')) {
+            setUserOrders((prev) =>
+              prev.map((o) => (o.id === order.id ? { ...o, status: 'out for delivery' } : o))
+            );
+            continue;
+          }
+          try {
+            await updateDoc(doc(db, 'orders', order.id), {
+              status: 'out for delivery',
+              updatedAt: serverTimestamp()
+            });
+          } catch (err) {
+            console.warn('[Auto Out-for-Delivery update notice]:', err);
           }
         }
       }
@@ -881,7 +870,9 @@ function ZypsomartAppContent({
     } catch (err) {
       console.warn('[Admin Stream Setup Error]:', err);
     }
-  }, [isAdminDashboardOpen]);
+  }, [isAdminDashboardOpen, currentUser?.uid]);
+
+  const hasBannersCollectionRef = useRef<boolean>(false);
 
   // Sync Shop Control Status & Settings
   useEffect(() => {
@@ -916,7 +907,7 @@ function ZypsomartAppContent({
               setStoreLocation(null);
             }
 
-            if (Array.isArray(data.festivalBanners) && data.festivalBanners.length > 0) {
+            if (!hasBannersCollectionRef.current && Array.isArray(data.festivalBanners) && data.festivalBanners.length > 0) {
               const upgradedBanners = ensureFeaturedBannerSlides(
                 data.festivalBanners.map((b: any, idx: number) => {
                   if (typeof b?.imageUrl === 'string' && b.imageUrl.includes('unsplash.com')) {
@@ -948,6 +939,7 @@ function ZypsomartAppContent({
     const unsub = subscribeToBannersCollection(
       (loadedBanners) => {
         if (loadedBanners.length > 0) {
+          hasBannersCollectionRef.current = true;
           const syncedBanners = ensureFeaturedBannerSlides(loadedBanners);
           setFestivalBanners(syncedBanners);
           try {
@@ -1176,6 +1168,24 @@ function ZypsomartAppContent({
 
     if (cart.length === 0) return;
 
+    // Verify no cart item has become out of stock / unavailable in current inventory
+    const unavailableItems = cart.filter((cartItem) => {
+      const liveProd = products.find((p) => p.id === cartItem.id);
+      return liveProd && liveProd.status !== 'Available';
+    });
+    if (unavailableItems.length > 0) {
+      const names = unavailableItems.map((i) => i.name).join(', ');
+      setActiveAlert({
+        type: 'error',
+        title: lang === 'hi' ? 'कुछ आइटम स्टॉक में नहीं हैं' : 'Item Out of Stock',
+        message:
+          lang === 'hi'
+            ? `निम्नलिखित आइटम अभी उपलब्ध नहीं हैं: ${names}। कृपया उन्हें कार्ट से हटाएं।`
+            : `The following item(s) are currently out of stock: ${names}. Please remove them before placing your order.`
+      });
+      return;
+    }
+
     setIsPlacingOrder(true);
 
     // 1. Ensure Firebase Auth is ready
@@ -1185,19 +1195,8 @@ function ZypsomartAppContent({
       } catch {}
     }
 
-    // 2. Ensure an authenticated session exists (anonymous or signed-in)
-    let activeUser = auth.currentUser;
-    if (!activeUser) {
-      try {
-        const anonRes = await signInAnonymously(auth);
-        activeUser = anonRes.user;
-        setCurrentUser(activeUser);
-      } catch (anonErr) {
-        console.warn('[Anonymous Auth notice]:', anonErr);
-      }
-    }
-
-    // Determine authenticated UID or persistent guest ID
+    // 2. Use active signed-in user or fall back to persistent guest session ID
+    const activeUser = auth.currentUser;
     let orderUserId = activeUser?.uid || currentUser?.uid;
     if (!orderUserId) {
       let guestId = localStorage.getItem('zypsum_guest_id');
@@ -1360,16 +1359,26 @@ function ZypsomartAppContent({
       confirmText: lang === 'hi' ? 'हाँ, रद्द करें' : 'Yes, Cancel',
       cancelText: lang === 'hi' ? 'नहीं' : 'Keep Order',
       onConfirm: async () => {
-        try {
-          await updateDoc(doc(db, 'orders', orderId), {
-            status: 'cancelled',
-            updatedAt: serverTimestamp()
-          });
-        } catch (err: any) {
-          console.warn('[Cancel Firestore Order Error, updating locally]:', err);
+        if (!orderId.startsWith('ord_')) {
+          try {
+            await updateDoc(doc(db, 'orders', orderId), {
+              status: 'cancelled',
+              updatedAt: serverTimestamp()
+            });
+          } catch (err: any) {
+            console.warn('[Cancel Firestore Order Error]:', err);
+            if (err?.code !== 'unavailable') {
+              setActiveAlert({
+                type: 'error',
+                title: lang === 'hi' ? 'ऑर्डर रद्द नहीं हो सका' : 'Cancel Failed',
+                message: getFriendlyErrorMessage(err)
+              });
+              return;
+            }
+          }
         }
 
-        // Also update local orders cache
+        // Update local orders cache and UI state
         const uid = currentUser?.uid || localStorage.getItem('zypsum_guest_id');
         const local = loadLocalOrders(uid);
         const nextLocal = local.map((o) => (o.id === orderId ? { ...o, status: 'cancelled' } : o));
@@ -1392,7 +1401,13 @@ function ZypsomartAppContent({
 
   // Open Return Order Modal
   const handleOpenReturnModal = (order: Order) => {
-    const activeUid = currentUser?.uid || localStorage.getItem('zypsum_guest_id');
+    let guestId: string | null = null;
+    try {
+      guestId = localStorage.getItem('zypsum_guest_id');
+    } catch {
+      guestId = null;
+    }
+    const activeUid = currentUser?.uid || guestId;
     if (!activeUid) {
       setIsOrdersOpen(false);
       setIsAuthOpen(true);
@@ -1413,7 +1428,8 @@ function ZypsomartAppContent({
       return;
     }
 
-    if (order.userId && activeUid && order.userId !== activeUid) {
+    const isOwner = order.userId === activeUid || (guestId && order.userId === guestId);
+    if (!isOwner) {
       setActiveAlert({
         type: 'error',
         title: lang === 'hi' ? 'अनधिकृत कार्रवाई' : 'Unauthorized Action',
@@ -1427,7 +1443,26 @@ function ZypsomartAppContent({
   };
 
   // Handle successful return submission
-  const handleReturnSuccess = (orderId: string) => {
+  const handleReturnSuccess = (orderId: string, returnReason?: string, returnNotes?: string) => {
+    const uid = currentUser?.uid || localStorage.getItem('zypsum_guest_id');
+    const applyReturnUpdate = (o: Order): Order =>
+      o.id === orderId
+        ? {
+            ...o,
+            status: 'return_requested',
+            returnReason: returnReason || o.returnReason,
+            returnNotes: returnNotes ?? o.returnNotes,
+            updatedAt: new Date().toISOString()
+          }
+        : o;
+
+    setUserOrders((prev) => prev.map(applyReturnUpdate));
+    try {
+      const local = loadLocalOrders(uid);
+      const nextLocal = local.map(applyReturnUpdate);
+      localStorage.setItem(getUserStorageKey(uid, 'local_orders'), JSON.stringify(nextLocal));
+    } catch {}
+
     setActiveAlert({
       type: 'success',
       title: t('returnSuccessTitle'),
@@ -1540,6 +1575,11 @@ function ZypsomartAppContent({
     return getShuffledProducts(products);
   }, [products]);
 
+  // Reset product pagination whenever category or search filter changes
+  useEffect(() => {
+    setDisplayLimit(20);
+  }, [selectedCategory, searchQuery]);
+
   // Filtered Products for the active category, search query, or all items
   const filteredProducts = useMemo(() => {
     const searchTarget = (searchQuery || '').trim().toLowerCase();
@@ -1638,7 +1678,18 @@ function ZypsomartAppContent({
             banners={activeFestivalBanners}
             lang={lang}
             onSelectCategory={(catName) => {
-              setSelectedCategory(catName);
+              const target = (catName || '').trim().toLowerCase();
+              if (!target || target === 'all') {
+                setSelectedCategory('All');
+                return;
+              }
+              const matchedCat = categories.find(
+                (c) => (c.name || '').trim().toLowerCase() === target || (c.name || '').toLowerCase().includes(target)
+              );
+              const hasMatchingProducts = products.some(
+                (p) => (p.normalizedCategory || p.category || '').trim().toLowerCase() === (matchedCat?.name || catName).trim().toLowerCase()
+              );
+              setSelectedCategory(matchedCat && hasMatchingProducts ? matchedCat.name : 'All');
             }}
             onScrollToBumperOffers={() => {
               const el = document.getElementById('bumper-offers-section');
@@ -1684,22 +1735,54 @@ function ZypsomartAppContent({
             </h2>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 lg:gap-5">
-            {filteredProducts.slice(0, displayLimit).map((product) => {
-              const inCart = cart.find((i) => i.id === product.id)?.qty || 0;
-              return (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  lang={lang}
-                  quantityInCart={inCart}
-                  onAddToCart={handleAddToCart}
-                  onUpdateQty={handleUpdateCartQty}
-                  onSelectProduct={(p) => setSelectedProductDetails(p)}
-                />
-              );
-            })}
-          </div>
+          {filteredProducts.length === 0 ? (
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-8 sm:p-10 text-center flex flex-col items-center justify-center shadow-2xs">
+              <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3">
+                <Package className="w-6 h-6" />
+              </div>
+              <p className="text-sm font-black text-slate-800">
+                {lang === 'hi' ? 'कोई उत्पाद नहीं मिला' : 'No matching items found'}
+              </p>
+              <p className="text-xs text-slate-500 mt-1 max-w-xs">
+                {searchQuery
+                  ? (lang === 'hi'
+                      ? `"${searchQuery}" से संबंधित कोई उत्पाद उपलब्ध नहीं है।`
+                      : `We couldn't find any products matching "${searchQuery}".`)
+                  : (lang === 'hi'
+                      ? 'इस श्रेणी में अभी कोई उत्पाद उपलब्ध नहीं है।'
+                      : 'No products are currently available in this category.')}
+              </p>
+              {(searchQuery || selectedCategory !== 'All') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSelectedCategory('All');
+                  }}
+                  className="mt-4 px-5 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-black rounded-xl transition-all cursor-pointer active:scale-95 shadow-xs"
+                >
+                  {lang === 'hi' ? 'सभी आइटम देखें' : 'Show All Items'}
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 lg:gap-5">
+              {filteredProducts.slice(0, displayLimit).map((product) => {
+                const inCart = cart.find((i) => i.id === product.id)?.qty || 0;
+                return (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    lang={lang}
+                    quantityInCart={inCart}
+                    onAddToCart={handleAddToCart}
+                    onUpdateQty={handleUpdateCartQty}
+                    onSelectProduct={(p) => setSelectedProductDetails(p)}
+                  />
+                );
+              })}
+            </div>
+          )}
 
           {/* Load more button if items exceed display limit */}
           {displayLimit < filteredProducts.length && (
