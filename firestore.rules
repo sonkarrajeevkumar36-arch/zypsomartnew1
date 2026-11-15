@@ -62,12 +62,12 @@ service cloud.firestore {
           isAuthenticated() &&
           (resource.data.userId == request.auth.uid || isAdmin()) &&
           (
-            request.resource.data.status in ['cancelled', 'return_requested', 'return_pending', 'placed', 'preparing', 'out for delivery', 'delivered'] || isAdmin()
+            request.resource.data.status in ['cancelled', 'return_requested', 'return_pending', 'placed', 'accepted', 'packaging', 'preparing', 'out for delivery', 'on the way', 'delivered'] || isAdmin()
           )
         ) ||
         (
           !isAuthenticated() &&
-          request.resource.data.status in ['cancelled', 'return_requested', 'return_pending', 'placed', 'preparing', 'out for delivery', 'delivered']
+          request.resource.data.status in ['cancelled', 'return_requested', 'return_pending', 'placed', 'accepted', 'packaging', 'preparing', 'out for delivery', 'on the way', 'delivered']
         ) ||
         isAdmin()
       );

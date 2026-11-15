@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { FestivalBanner, Language } from '../types';
 import { getTranslation } from '../translations';
+import defaultCarouselBanner from '../assets/images/regenerated_image_1794622230092.png';
 
 interface FestivalBannerCarouselProps {
   banners: FestivalBanner[];
@@ -143,7 +144,7 @@ export function FestivalBannerCarousel({
                 const target = e.currentTarget as HTMLImageElement;
                 if (!target.dataset.fallbackApplied) {
                   target.dataset.fallbackApplied = 'true';
-                  target.src = '/diwali_festival_banner.jpg';
+                  target.src = defaultCarouselBanner;
                 }
               }}
             />

@@ -43,7 +43,7 @@ export function ProductCard({
       }`}
     >
       {/* Product Image */}
-      <div className="bg-slate-50 rounded-xl h-28 mb-2 flex items-center justify-center p-2 overflow-hidden relative">
+      <div className="bg-slate-50/80 rounded-xl h-28 sm:h-36 md:h-40 mb-2.5 flex items-center justify-center p-2.5 overflow-hidden relative">
         <img
           referrerPolicy="no-referrer"
           src={product?.imageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=200&auto=format&fit=crop&q=80'}
@@ -67,7 +67,7 @@ export function ProductCard({
 
       {/* Info */}
       <div className="flex flex-col mb-2">
-        <h3 className="text-xs font-bold text-slate-900 line-clamp-2 leading-snug group-hover:text-green-700 transition-colors" title={product?.name || 'Item'}>
+        <h3 className="text-xs sm:text-[13px] font-bold text-slate-900 line-clamp-2 leading-snug group-hover:text-green-700 transition-colors" title={product?.name || 'Item'}>
           {product?.name || 'Item'}
         </h3>
         <span className="text-[10px] text-slate-400 font-semibold mt-0.5">
@@ -78,10 +78,10 @@ export function ProductCard({
       {/* Price & Add to Cart Controls */}
       <div className="flex items-center justify-between mt-auto pt-2 border-t border-slate-50">
         <div className="flex flex-col">
-          <span className="font-black text-xs sm:text-sm text-slate-900 leading-none">
+          <span className="font-black text-xs sm:text-sm md:text-base text-slate-900 leading-none tabular-nums">
             ₹{Number(product?.price) || 0}
           </span>
-          <span className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">
+          <span className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase mt-0.5">
             / {lang === 'hi' && product?.unit ? t(`units.${(product.unit || '').toLowerCase()}`) || product.unit : (product?.unit || 'kg')}
           </span>
         </div>

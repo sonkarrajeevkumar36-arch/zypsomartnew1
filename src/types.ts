@@ -1,8 +1,11 @@
 export type OrderStatus =
   | 'placed'
   | 'pending'
+  | 'accepted'
+  | 'packaging'
   | 'preparing'
   | 'out for delivery'
+  | 'on the way'
   | 'delivered'
   | 'cancelled'
   | 'return_requested'
@@ -10,6 +13,11 @@ export type OrderStatus =
   | 'returned'
   | 'return_approved'
   | 'return_rejected';
+
+export interface GeoCoords {
+  lat: number;
+  lng: number;
+}
 
 export interface CartItem {
   id: string;
@@ -51,6 +59,7 @@ export interface Order {
   customerName: string;
   customerPhone: string;
   customerAddress: string;
+  deliveryLocation?: GeoCoords | null;
   estimatedDelivery?: string;
   paymentMethod?: 'cod' | 'online' | 'upi_qr';
   paymentStatus?: 'pending' | 'paid' | 'failed';
@@ -62,6 +71,7 @@ export interface Order {
   createdAt?: any;
   updatedAt?: any;
   acceptedAt?: any;
+  packagingAt?: any;
   deliveredAt?: any;
   returnReason?: string;
   returnNotes?: string;

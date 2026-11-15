@@ -11,7 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { FestivalBanner } from '../types';
-import { DEFAULT_FESTIVAL_BANNERS } from './festivalScheduler';
+import { DEFAULT_FESTIVAL_BANNERS, diwaliBannerAsset } from './festivalScheduler';
 
 export const BANNERS_COLLECTION = 'banners';
 
@@ -37,7 +37,7 @@ export function subscribeToBannersCollection(
               festivalName: data.festivalName || 'Festival Offer',
               headline: data.headline || 'Celebrate Every Festival with Zypsomart!',
               subtitle: data.subtitle || 'Bumper Offers – Order Now!',
-              imageUrl: data.imageUrl || '/diwali_festival_banner.jpg',
+              imageUrl: data.imageUrl || diwaliBannerAsset,
               badgeText: data.badgeText || '',
               ctaText: data.ctaText || 'Shop Now',
               categoryTarget: data.categoryTarget || 'All',
@@ -52,8 +52,8 @@ export function subscribeToBannersCollection(
           // Sort by priority descending (highest priority appears first)
           loaded.sort((a, b) => (Number(b.priority) || 1) - (Number(a.priority) || 1));
           onUpdate(loaded);
-        } else {
-          // Collection is empty, notify listener with empty array so fallback can apply
+        } else if (!snapshot.metadata.fromCache) {
+          // Collection is confirmed empty on the server
           onUpdate([]);
         }
       },

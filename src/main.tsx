@@ -4,6 +4,21 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 
+// Early capture of Google Maps quota/auth failures before React hydration
+if (typeof window !== 'undefined') {
+  (window as any).gm_authFailure = () => {
+    window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
+  };
+  const origConsoleError = console.error;
+  console.error = (...args: unknown[]) => {
+    origConsoleError.apply(console, args);
+    const msg = args.map((a) => String(a)).join(' ');
+    if (msg.includes('OverQuotaMapError') || msg.includes('QuotaExceededError')) {
+      window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
+    }
+  };
+}
+
 // Early capture of beforeinstallprompt before React hydration
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeinstallprompt', (e: Event) => {

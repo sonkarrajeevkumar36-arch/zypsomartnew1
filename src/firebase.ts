@@ -1,6 +1,12 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, browserLocalPersistence, setPersistence } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  Firestore,
+  doc,
+  getDocFromServer
+} from 'firebase/firestore';
 
 const defaultFirebaseConfig = {
   apiKey: "AIzaSyDxztzPoCTCzckaEsvupHJOyCHEhAxr9DU",
@@ -22,7 +28,36 @@ const firebaseConfig = {
 
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// Force HTTP long-polling to avoid WebChannel 10-second hangs inside iframes, proxies, or restricted mobile networks
+let dbInstance: Firestore;
+try {
+  dbInstance = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+    experimentalLongPollingOptions: {
+      timeoutSeconds: 20
+    },
+    ignoreUndefinedProperties: true
+  });
+} catch {
+  dbInstance = getFirestore(app);
+}
+export const db = dbInstance;
+
+// Verify Firestore connectivity non-blockingly at startup
+async function verifyFirestoreConnection() {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return;
+  }
+  try {
+    await getDocFromServer(doc(db, 'shopControl', 'status'));
+  } catch (err: any) {
+    if (err?.code === 'unavailable' || (err instanceof Error && err.message.includes('the client is offline'))) {
+      console.warn('[Firestore Connectivity Notice]: Client operating in offline mode until backend is reachable.');
+    }
+  }
+}
+verifyFirestoreConnection();
 
 // Enforce browser local persistence
 setPersistence(auth, browserLocalPersistence).catch((err) => {

@@ -48,8 +48,8 @@ export function Header({
   const t = (key: string, params?: Record<string, string | number>) => getTranslation(lang, key, params);
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md pt-[max(0.75rem,env(safe-area-inset-top))] sm:pt-4 pb-3 px-3 sm:px-6 border-b border-slate-100 space-y-2.5 sm:space-y-3 shadow-xs">
-      <div className="flex items-center justify-between gap-2">
+    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md pt-[max(0.75rem,env(safe-area-inset-top))] sm:pt-4 pb-3 px-3 sm:px-6 lg:px-8 border-b border-slate-100 shadow-xs transition-all">
+      <div className="flex items-center justify-between gap-2 sm:gap-4">
         {/* Logo & Branding - Pure customer brand representation */}
         <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
           <div
@@ -83,6 +83,29 @@ export function Header({
               </p>
             </div>
           </div>
+        </div>
+
+        {/* Desktop & Tablet Centered Search Bar */}
+        <div className="hidden md:flex flex-1 max-w-md lg:max-w-xl mx-2 lg:mx-6 relative">
+          <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">
+            <Search className="w-4 h-4" />
+          </div>
+          <input
+            type="text"
+            placeholder={t('searchPlaceholder')}
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl h-10 pl-9 pr-9 text-xs sm:text-sm font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-primary)]/20 transition-all shadow-none leading-normal"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => onSearchChange('')}
+              className="absolute inset-y-0 right-3 flex items-center text-xs font-bold text-slate-400 hover:text-slate-700 cursor-pointer"
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         {/* Action Controls */}
@@ -192,15 +215,15 @@ export function Header({
         </div>
       </div>
 
-      {/* Search Input Bar */}
-      <div className="relative">
+      {/* Mobile Search Input Bar (only on small screens < md) */}
+      <div className="md:hidden relative mt-2.5">
         <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">
           <Search className="w-4 h-4" />
         </div>
         <input
           type="text"
           placeholder={t('searchPlaceholder')}
-          className="w-full bg-slate-50 border border-slate-200 rounded-xl h-10 sm:h-11 pl-9 pr-9 text-sm font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-primary)]/20 transition-all shadow-none leading-normal"
+          className="w-full bg-slate-50 border border-slate-200 rounded-xl h-10 pl-9 pr-9 text-xs sm:text-sm font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-primary)]/20 transition-all shadow-none leading-normal"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
         />

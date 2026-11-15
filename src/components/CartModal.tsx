@@ -14,10 +14,13 @@ import {
   QrCode,
   Copy,
   Check,
-  Smartphone
+  Smartphone,
+  MapPin,
+  ChevronDown
 } from 'lucide-react';
-import { CartItem, Language } from '../types';
+import { CartItem, GeoCoords, Language } from '../types';
 import { getTranslation } from '../translations';
+import { DeliveryMapPicker } from './DeliveryMapPicker';
 
 interface CartModalProps {
   isOpen: boolean;
@@ -35,6 +38,9 @@ interface CartModalProps {
   enableOnline?: boolean;
   enableUpiQr?: boolean;
   isPlacingOrder?: boolean;
+  deliveryLocation?: GeoCoords | null;
+  isMapsEnabled?: boolean;
+  onDeliveryLocationChange?: (coords: GeoCoords | null) => void;
   onCustomerNameChange: (val: string) => void;
   onCustomerPhoneChange: (val: string) => void;
   onCustomerAddressChange: (val: string) => void;
@@ -61,6 +67,9 @@ export function CartModal({
   enableOnline = true,
   enableUpiQr = true,
   isPlacingOrder = false,
+  deliveryLocation = null,
+  isMapsEnabled = false,
+  onDeliveryLocationChange,
   onCustomerNameChange,
   onCustomerPhoneChange,
   onCustomerAddressChange,
@@ -71,6 +80,7 @@ export function CartModal({
   onPlaceOrder
 }: CartModalProps) {
   const [copiedUpi, setCopiedUpi] = useState(false);
+  const [showMapPicker, setShowMapPicker] = useState<boolean>(true);
   if (!isOpen) return null;
 
   const t = (key: string, params?: Record<string, string | number>) => getTranslation(lang, key, params);
@@ -94,7 +104,7 @@ export function CartModal({
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: '100%', opacity: 0 }}
           transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-          className="bg-white w-full max-w-lg h-[90vh] sm:h-auto sm:max-h-[88vh] rounded-t-[32px] sm:rounded-[32px] shadow-2xl flex flex-col p-5 sm:p-6 overflow-hidden text-slate-900 border border-slate-100"
+          className="bg-white w-full max-w-lg md:max-w-xl h-[90vh] sm:h-auto sm:max-h-[88vh] rounded-t-[32px] sm:rounded-[32px] shadow-2xl flex flex-col p-5 sm:p-6 overflow-hidden text-slate-900 border border-slate-100"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -196,10 +206,43 @@ export function CartModal({
 
                 {/* Delivery Information Section */}
                 <div className="pt-2 space-y-3">
-                  <h3 className="font-black text-xs text-slate-900 border-b border-slate-100 pb-2 uppercase tracking-wider">
-                    {t('deliveryDetails')}
-                  </h3>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <h3 className="font-black text-xs text-slate-900 uppercase tracking-wider">
+                      {t('deliveryDetails')}
+                    </h3>
+                    {isMapsEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => setShowMapPicker((prev) => !prev)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] font-bold transition-colors cursor-pointer"
+                      >
+                        <MapPin className="w-3 h-3" />
+                        <span>
+                          {showMapPicker
+                            ? lang === 'hi'
+                              ? 'मैप छुपाएं'
+                              : 'Hide Map'
+                            : lang === 'hi'
+                            ? 'मैप से पिन चुनें'
+                            : 'Pin on Google Maps'}
+                        </span>
+                        <ChevronDown
+                          className={`w-3 h-3 transition-transform ${showMapPicker ? 'rotate-180' : ''}`}
+                        />
+                      </button>
+                    )}
+                  </div>
                   <div className="space-y-2.5">
+                    {isMapsEnabled && showMapPicker && (
+                      <DeliveryMapPicker
+                        location={deliveryLocation}
+                        addressText={customerAddress}
+                        lang={lang}
+                        isMapsEnabled={isMapsEnabled}
+                        onLocationChange={(coords) => onDeliveryLocationChange?.(coords)}
+                        onAddressSelect={(formatted) => onCustomerAddressChange(formatted)}
+                      />
+                    )}
                     <input
                       type="text"
                       placeholder={t('fullName')}

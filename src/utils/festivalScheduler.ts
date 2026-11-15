@@ -1,11 +1,13 @@
 import { FestivalBanner } from '../types';
-import diwaliBannerAsset from '../assets/images/diwali_festival_banner_1793716408844.jpg';
+import diwaliBannerAsset from '../assets/images/regenerated_image_1794622230092.png';
 import harvestBannerAsset from '../assets/images/harvest_fresh_sale_1788545772060.jpg';
 import festiveMahaAsset from '../assets/images/festive_maha_sale_1788545754852.jpg';
 import diwaliSweetsAsset from '../assets/images/diwali_sweets_celebration_1793719567857.jpg';
 import diwaliGiftsAsset from '../assets/images/diwali_gifts_groceries_1793719605415.jpg';
 import diwaliRangoliAsset from '../assets/images/diwali_diyas_rangoli_1793719623116.jpg';
 import superSaverAsset from '../assets/images/super_saver_sale_1788545795226.jpg';
+
+export const FAST_FOOD_BANNER_IMAGE = '/assets/aistudio/image_37cea2b0_6411b6aa.jpg';
 
 export {
   diwaliBannerAsset,
@@ -49,7 +51,24 @@ export function getCurrentISTDate(): { dateString: string; month: number; day: n
  * Curated preset Festival Banners covering major Indian celebrations
  * Features real grocery products, glowing diyas, golden festive styling, and authentic Indian festivals.
  */
+export const FAST_FOOD_BANNER_SLIDE: FestivalBanner = {
+  id: 'fest_fast_food_express',
+  festivalName: 'Hot Fast Food Express',
+  headline: 'Hot Fast Food • Fast Delivery',
+  subtitle: 'अब गरमागरम फ़ास्ट फ़ूड आपके गांव / घर तक!',
+  imageUrl: FAST_FOOD_BANNER_IMAGE,
+  badgeText: '🍔 HOT FAST FOOD • 20-30 MIN',
+  ctaText: 'Order Fast Food Now',
+  categoryTarget: 'Fast Food',
+  startDate: '2026-11-01',
+  endDate: '2026-12-31',
+  isActive: true,
+  priority: 35,
+  accentColor: '#ea580c'
+};
+
 export const DEFAULT_FESTIVAL_BANNERS: FestivalBanner[] = [
+  FAST_FOOD_BANNER_SLIDE,
   {
     id: 'fest_diwali_special',
     festivalName: 'Diwali',
@@ -155,12 +174,24 @@ export const DEFAULT_FESTIVAL_BANNERS: FestivalBanner[] = [
   }
 ];
 
+export function ensureFeaturedBannerSlides(banners: FestivalBanner[]): FestivalBanner[] {
+  if (!Array.isArray(banners) || banners.length === 0) {
+    return DEFAULT_FESTIVAL_BANNERS;
+  }
+  const hasFastFoodSlide = banners.some(
+    (b) => b.id === FAST_FOOD_BANNER_SLIDE.id || b.imageUrl === FAST_FOOD_BANNER_IMAGE
+  );
+  if (hasFastFoodSlide) return banners;
+  return [FAST_FOOD_BANNER_SLIDE, ...banners];
+}
+
 /**
  * Filter and prioritize active festival banners according to Indian Standard Time (IST)
  * and custom administrator settings.
  */
 export function resolveActiveFestivalBanners(customBanners?: FestivalBanner[]): FestivalBanner[] {
-  const allBanners = (customBanners && customBanners.length > 0) ? customBanners : DEFAULT_FESTIVAL_BANNERS;
+  const rawBanners = (customBanners && customBanners.length > 0) ? customBanners : DEFAULT_FESTIVAL_BANNERS;
+  const allBanners = ensureFeaturedBannerSlides(rawBanners);
   const { dateString, month } = getCurrentISTDate();
 
   // 1. Separate strictly active banners
@@ -194,10 +225,12 @@ export function resolveActiveFestivalBanners(customBanners?: FestivalBanner[]): 
       score += 20;
     }
 
-    // Upgrade any legacy stock photo URLs to the new Diwali celebration images
+    // Upgrade any legacy stock photo URLs or old default banner asset to the updated banner images
     let resolvedImageUrl = banner.imageUrl;
     if (resolvedImageUrl && typeof resolvedImageUrl === 'string') {
-      if (resolvedImageUrl.includes('543257580') || banner.id === 'fest_christmas_newyear') {
+      if (resolvedImageUrl.includes('diwali_festival_banner_1793716408844')) {
+        resolvedImageUrl = diwaliBannerAsset;
+      } else if (resolvedImageUrl.includes('543257580') || banner.id === 'fest_christmas_newyear') {
         resolvedImageUrl = diwaliSweetsAsset;
       } else if (resolvedImageUrl.includes('579783900882') || banner.id === 'fest_holi_colors') {
         resolvedImageUrl = diwaliGiftsAsset;

@@ -18,11 +18,13 @@ import {
 } from 'firebase/firestore';
 
 import { auth, db, getFriendlyErrorMessage } from './firebase';
-import { Product, Category, Order, CartItem, ModalAlert, FlyingItem, Language, BeforeInstallPromptEvent, FestivalBanner } from './types';
+import { Product, Category, Order, CartItem, GeoCoords, ModalAlert, FlyingItem, Language, BeforeInstallPromptEvent, FestivalBanner } from './types';
 import { getTranslation } from './translations';
+import { APIProvider } from '@vis.gl/react-google-maps';
+import { loadCachedCoords, saveCachedCoords } from './utils/mapsQuota';
 import { getShuffledProducts } from './utils/productShuffle';
-import { DEFAULT_FESTIVAL_BANNERS, resolveActiveFestivalBanners } from './utils/festivalScheduler';
-import { subscribeToBannersCollection, saveBannerToFirestore, seedBannersCollectionToFirestore } from './utils/bannerService';
+import { DEFAULT_FESTIVAL_BANNERS, ensureFeaturedBannerSlides, resolveActiveFestivalBanners } from './utils/festivalScheduler';
+import { subscribeToBannersCollection, saveBannerToFirestore } from './utils/bannerService';
 import { Header } from './components/Header';
 import { Banner } from './components/Banner';
 import { CategoryList } from './components/CategoryList';
@@ -175,7 +177,56 @@ const saveLocalOrder = (uid: string | null | undefined, order: Order) => {
   }
 };
 
+const GOOGLE_MAPS_API_KEY: string =
+  (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ||
+  (typeof process !== 'undefined' ? (process as any).env?.GOOGLE_MAPS_API_KEY : '') ||
+  '';
+
 export default function App() {
+  const [lang, setLang] = useState<Language>(() => (localStorage.getItem('zypsum_lang') as Language) || 'en');
+  const [isGmpQuotaExceeded, setIsGmpQuotaExceeded] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleQuotaExceeded = () => {
+      setIsGmpQuotaExceeded(true);
+    };
+    window.addEventListener('gmp-quota-exceeded', handleQuotaExceeded);
+    return () => window.removeEventListener('gmp-quota-exceeded', handleQuotaExceeded);
+  }, []);
+
+  const appContent = (
+    <ZypsomartAppContent
+      lang={lang}
+      setLang={setLang}
+      isGmpQuotaExceeded={isGmpQuotaExceeded}
+    />
+  );
+
+  if (!GOOGLE_MAPS_API_KEY) {
+    return appContent;
+  }
+
+  return (
+    <APIProvider
+      apiKey={GOOGLE_MAPS_API_KEY}
+      language={lang === 'hi' ? 'hi' : 'en'}
+      region="IN"
+      libraries={['places', 'routes', 'marker']}
+    >
+      {appContent}
+    </APIProvider>
+  );
+}
+
+function ZypsomartAppContent({
+  lang,
+  setLang,
+  isGmpQuotaExceeded
+}: {
+  lang: Language;
+  setLang: React.Dispatch<React.SetStateAction<Language>>;
+  isGmpQuotaExceeded: boolean;
+}) {
   // Auth state & User Session Tracking
   const [currentUser, setCurrentUser] = useState<User | null>(() => auth.currentUser);
   const activeUidRef = useRef<string | null>(auth.currentUser ? auth.currentUser.uid : null);
@@ -212,12 +263,13 @@ export default function App() {
   const [customerName, setCustomerName] = useState<string>(() => initialUserData.name || auth.currentUser?.displayName || '');
   const [customerPhone, setCustomerPhone] = useState<string>(() => initialUserData.phone || auth.currentUser?.phoneNumber || '');
   const [customerAddress, setCustomerAddress] = useState<string>(() => initialUserData.address || '');
+  const [deliveryLocation, setDeliveryLocation] = useState<GeoCoords | null>(() =>
+    loadCachedCoords(getUserStorageKey(initialUid, 'customer_coords'))
+  );
+  const [storeLocation, setStoreLocation] = useState<GeoCoords | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'cod'>('cod');
   const [guestSessionId, setGuestSessionId] = useState<string>(() => localStorage.getItem('zypsum_guest_id') || '');
   const [isPlacingOrder, setIsPlacingOrder] = useState<boolean>(false);
-
-  // Language
-  const [lang, setLang] = useState<Language>(() => (localStorage.getItem('zypsum_lang') as Language) || 'en');
 
   // Modals & Navigation
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
@@ -255,7 +307,7 @@ export default function App() {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
           const hasOldUnsplash = parsed.some((b: any) => typeof b?.imageUrl === 'string' && b.imageUrl.includes('unsplash.com'));
-          if (!hasOldUnsplash) return parsed;
+          if (!hasOldUnsplash) return ensureFeaturedBannerSlides(parsed);
         }
       }
     } catch {}
@@ -544,6 +596,13 @@ export default function App() {
   }, [customerAddress, currentUser]);
 
   useEffect(() => {
+    const uid = currentUser ? currentUser.uid : null;
+    if (uid === activeUidRef.current) {
+      saveCachedCoords(getUserStorageKey(uid, 'customer_coords'), deliveryLocation);
+    }
+  }, [deliveryLocation, currentUser]);
+
+  useEffect(() => {
     localStorage.setItem('zypsum_lang', lang);
   }, [lang]);
 
@@ -598,6 +657,7 @@ export default function App() {
         setCustomerName(nextData.name || user?.displayName || '');
         setCustomerPhone(nextData.phone || user?.phoneNumber || '');
         setCustomerAddress(nextData.address || '');
+        setDeliveryLocation(loadCachedCoords(getUserStorageKey(newUid, 'customer_coords')));
 
         // Immediately clear any active user orders / modal states from previous user
         setUserOrders([]);
@@ -624,29 +684,42 @@ export default function App() {
       return;
     }
 
+    // Load cached orders initially for instant offline readiness
+    const cached = loadLocalOrders(activeUid);
+    if (cached.length > 0) {
+      setUserOrders(cached);
+    }
+
     try {
-      const q = query(
-        collection(db, 'orders'),
-        where('userId', '==', activeUid),
-        limit(50)
-      );
+      const guestId = localStorage.getItem('zypsum_guest_id');
+      const currentUid = currentUser?.uid;
+      const uidsToQuery = Array.from(new Set([currentUid, guestId].filter(Boolean))) as string[];
+
+      const q =
+        uidsToQuery.length > 1
+          ? query(collection(db, 'orders'), where('userId', 'in', uidsToQuery), limit(50))
+          : query(collection(db, 'orders'), where('userId', '==', activeUid), limit(50));
 
       const unsub = onSnapshot(
         q,
         (snapshot) => {
-          const list: Order[] = snapshot.docs.map((docSnap) => ({
+          // 1. Authoritative Firestore orders
+          const firestoreOrders: Order[] = snapshot.docs.map((docSnap) => ({
             id: docSnap.id,
             ...(docSnap.data() as any)
           }));
+
+          // 2. Only preserve genuinely unsynced offline draft orders (IDs starting with 'ord_')
+          // Any regular Firestore order absent from snapshot.docs has been deleted and MUST NOT be resurrected!
           const localList = loadLocalOrders(activeUid);
-          const combined = [...list];
-          localList.forEach((loc) => {
-            if (!combined.some((o) => o.id === loc.id)) {
-              combined.push(loc);
-            }
-          });
+          const unsyncedOfflineDrafts = localList.filter(
+            (loc) => loc.id && loc.id.startsWith('ord_') && !firestoreOrders.some((o) => o.id === loc.id)
+          );
+
+          const syncedOrders = [...firestoreOrders, ...unsyncedOfflineDrafts];
+
           // Sort client-side by creation timestamp to eliminate composite index requirement
-          combined.sort((a, b) => {
+          syncedOrders.sort((a, b) => {
             const getMillis = (val: any) => {
               if (!val) return 0;
               if (typeof val.toMillis === 'function') return val.toMillis();
@@ -657,7 +730,29 @@ export default function App() {
             };
             return getMillis(b.createdAt) - getMillis(a.createdAt);
           });
-          setUserOrders(combined);
+
+          // Update state immediately so deleted orders vanish from the UI instantly
+          setUserOrders(syncedOrders);
+
+          // Update localStorage cache with the exact synchronized list so deleted orders never linger
+          try {
+            const key = getUserStorageKey(activeUid, 'local_orders');
+            localStorage.setItem(key, JSON.stringify(syncedOrders));
+
+            // Also clean up guest key if current user is logged in
+            if (guestId && currentUid && guestId !== currentUid) {
+              const guestKey = getUserStorageKey(guestId, 'local_orders');
+              const guestOrders = loadLocalOrders(guestId);
+              const cleanedGuest = guestOrders.filter((o) => !firestoreOrders.some((f) => f.id === o.id) && o.id.startsWith('ord_'));
+              if (cleanedGuest.length > 0) {
+                localStorage.setItem(guestKey, JSON.stringify(cleanedGuest));
+              } else {
+                localStorage.removeItem(guestKey);
+              }
+            }
+          } catch (cacheErr) {
+            console.warn('[Orders Cache Sync Warning]:', cacheErr);
+          }
         },
         (err) => {
           console.warn('[Orders Snapshot Warning]:', err);
@@ -674,7 +769,7 @@ export default function App() {
     }
   }, [currentUser, guestSessionId]);
 
-  // Auto-transition orders in 'preparing' (Packing) status to 'out for delivery' (On The Way) after 5 minutes
+  // Auto-transition orders in 'packaging' / 'preparing' status to 'out for delivery' (On The Way) after 5 minutes
   useEffect(() => {
     const checkAndAdvanceOrders = async () => {
       const allOrders = [...userOrders, ...allAdminOrders];
@@ -684,8 +779,9 @@ export default function App() {
       for (const order of allOrders) {
         if (!order?.id || updatedIds.has(order.id)) continue;
         const s = (order.status || '').toLowerCase().trim();
-        if (s === 'preparing') {
+        if (s === 'preparing' || s === 'packaging' || s === 'packing') {
           const acceptedMs =
+            getTimestampMs(order.packagingAt) ||
             getTimestampMs(order.acceptedAt) ||
             getTimestampMs(order.updatedAt) ||
             getTimestampMs(order.createdAt);
@@ -810,14 +906,26 @@ export default function App() {
             const isLikelyImage = rawLogo.startsWith('data:image') || rawLogo.startsWith('/') || /\.(png|jpe?g|webp|svg|gif)(\?.*)?$/i.test(rawLogo);
             setAppLogoUrl(isLikelyImage ? rawLogo : '');
 
+            if (
+              data.storeLocation &&
+              typeof data.storeLocation.lat === 'number' &&
+              typeof data.storeLocation.lng === 'number'
+            ) {
+              setStoreLocation({ lat: data.storeLocation.lat, lng: data.storeLocation.lng });
+            } else {
+              setStoreLocation(null);
+            }
+
             if (Array.isArray(data.festivalBanners) && data.festivalBanners.length > 0) {
-              const upgradedBanners = data.festivalBanners.map((b: any, idx: number) => {
-                if (typeof b?.imageUrl === 'string' && b.imageUrl.includes('unsplash.com')) {
-                  const fallback = DEFAULT_FESTIVAL_BANNERS[idx] || DEFAULT_FESTIVAL_BANNERS[0];
-                  return { ...b, imageUrl: fallback.imageUrl, festivalName: fallback.festivalName };
-                }
-                return b;
-              });
+              const upgradedBanners = ensureFeaturedBannerSlides(
+                data.festivalBanners.map((b: any, idx: number) => {
+                  if (typeof b?.imageUrl === 'string' && b.imageUrl.includes('unsplash.com')) {
+                    const fallback = DEFAULT_FESTIVAL_BANNERS[idx] || DEFAULT_FESTIVAL_BANNERS[0];
+                    return { ...b, imageUrl: fallback.imageUrl, festivalName: fallback.festivalName };
+                  }
+                  return b;
+                })
+              );
               setFestivalBanners(upgradedBanners);
               try {
                 localStorage.setItem('zypsum_festival_banners_cache', JSON.stringify(upgradedBanners));
@@ -840,13 +948,11 @@ export default function App() {
     const unsub = subscribeToBannersCollection(
       (loadedBanners) => {
         if (loadedBanners.length > 0) {
-          setFestivalBanners(loadedBanners);
+          const syncedBanners = ensureFeaturedBannerSlides(loadedBanners);
+          setFestivalBanners(syncedBanners);
           try {
-            localStorage.setItem('zypsum_festival_banners_cache', JSON.stringify(loadedBanners));
+            localStorage.setItem('zypsum_festival_banners_cache', JSON.stringify(syncedBanners));
           } catch {}
-        } else {
-          // If the 'banners' collection is empty, seed it to Firestore so documents exist for editing
-          seedBannersCollectionToFirestore().catch(() => {});
         }
       },
       (err) => {
@@ -1135,6 +1241,7 @@ export default function App() {
           customerName: customerName.trim(),
           customerPhone: customerPhone.trim(),
           customerAddress: customerAddress.trim(),
+          deliveryLocation: deliveryLocation || null,
           estimatedDelivery: `${minMinutes}-${maxMinutes} mins`,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
@@ -1152,6 +1259,7 @@ export default function App() {
           customerName: customerName.trim(),
           customerPhone: customerPhone.trim(),
           customerAddress: customerAddress.trim(),
+          deliveryLocation: deliveryLocation || null,
           estimatedDelivery: `${minMinutes}-${maxMinutes} mins`,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
@@ -1206,6 +1314,7 @@ export default function App() {
             customerName: customerName.trim(),
             customerPhone: customerPhone.trim(),
             customerAddress: customerAddress.trim(),
+            deliveryLocation: deliveryLocation || null,
             estimatedDelivery: `${minMinutes}-${maxMinutes} mins`,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
@@ -1449,6 +1558,22 @@ export default function App() {
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-50 relative w-full max-w-7xl mx-auto shadow-sm font-sans">
+      {isGmpQuotaExceeded && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-[300] shadow-sm">
+          <span>
+            Google Maps Platform quota reached. If you are the app owner, visit{' '}
+            <a
+              href="https://developers.google.com/maps/ai/ai-studio?utm_campaign=gmp_mcp_codeassist_v1_aistudio#quota_exceeded_errors"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline font-semibold text-amber-950 hover:text-amber-800"
+            >
+              maps developer site
+            </a>{' '}
+            for instructions to update your account.
+          </span>
+        </div>
+      )}
       {/* Main Header */}
       <Header
         user={currentUser}
@@ -1734,6 +1859,9 @@ export default function App() {
         customerName={customerName}
         customerPhone={customerPhone}
         customerAddress={customerAddress}
+        deliveryLocation={deliveryLocation}
+        isMapsEnabled={Boolean(GOOGLE_MAPS_API_KEY)}
+        onDeliveryLocationChange={setDeliveryLocation}
         paymentMethod="cod"
         storeUpiId={storeUpiId}
         storeUpiName={storeUpiName}
@@ -1760,6 +1888,8 @@ export default function App() {
         onSelectCategory={(cat) => setSelectedCategory(cat)}
         isLoggedIn={!!currentUser}
         onOpenAuth={() => setIsAuthOpen(true)}
+        storeLocation={storeLocation}
+        isMapsEnabled={Boolean(GOOGLE_MAPS_API_KEY)}
       />
 
       {/* Dedicated Return Order Modal solving user's issue */}
@@ -1872,6 +2002,8 @@ export default function App() {
         onShowSuccess={(title, msg) => setActiveAlert({ type: 'success', title, message: msg })}
         onShowError={(title, msg) => setActiveAlert({ type: 'error', title, message: msg })}
         onPreviewDiwaliAnimation={() => setShowDiwaliWelcome(true)}
+        storeLocation={storeLocation}
+        isMapsEnabled={Boolean(GOOGLE_MAPS_API_KEY)}
       />
 
       {/* Admin PIN Dialog */}

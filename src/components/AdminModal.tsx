@@ -32,7 +32,8 @@ import {
 import { doc, updateDoc, setDoc, deleteDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { db, auth, getFriendlyErrorMessage } from '../firebase';
-import { Order, Product, Category, Language, FestivalBanner } from '../types';
+import { Order, Product, Category, GeoCoords, Language, FestivalBanner } from '../types';
+import { DeliveryMapPicker } from './DeliveryMapPicker';
 import { DEFAULT_FESTIVAL_BANNERS } from '../utils/festivalScheduler';
 import {
   saveBannerToFirestore,
@@ -63,6 +64,8 @@ interface AdminModalProps {
   onShowSuccess: (title: string, msg: string) => void;
   onShowError: (title: string, msg: string) => void;
   onPreviewDiwaliAnimation?: () => void;
+  storeLocation?: GeoCoords | null;
+  isMapsEnabled?: boolean;
 }
 
 export function AdminModal({
@@ -85,9 +88,15 @@ export function AdminModal({
   onRefreshProducts,
   onShowSuccess,
   onShowError,
-  onPreviewDiwaliAnimation
+  onPreviewDiwaliAnimation,
+  storeLocation = null,
+  isMapsEnabled = false
 }: AdminModalProps) {
   const [activeTab, setActiveTab] = useState<'orders' | 'inventory' | 'banners' | 'payments' | 'analytics' | 'settings'>('orders');
+
+  // Order deletion state
+  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
+  const [confirmDeleteOrderId, setConfirmDeleteOrderId] = useState<string | null>(null);
 
   // Category creation state
   const [newCatName, setNewCatName] = useState<string>('');
@@ -116,6 +125,8 @@ export function AdminModal({
   // Settings state
   const [logoInput, setLogoInput] = useState<string>(appLogoUrl || '');
   const [supportInput, setSupportInput] = useState<string>(supportNumber || '8090315246');
+  const [storeCoordsInput, setStoreCoordsInput] = useState<GeoCoords | null>(storeLocation || null);
+  const [storeAddressInput, setStoreAddressInput] = useState<string>('');
 
   // Payment Gateway System state
   const [upiIdInput, setUpiIdInput] = useState<string>(upiId || 'sonkarrajeevkumar36@okhdfcbank');
@@ -399,7 +410,10 @@ export function AdminModal({
         updatedAt: serverTimestamp()
       };
 
-      if (newStatus === 'preparing') {
+      if (newStatus === 'accepted') {
+        updatePayload.acceptedAt = serverTimestamp();
+      } else if (newStatus === 'packaging' || newStatus === 'preparing') {
+        updatePayload.packagingAt = serverTimestamp();
         updatePayload.acceptedAt = serverTimestamp();
       } else if (newStatus === 'return_approved') {
         updatePayload.returnApprovedAt = serverTimestamp();
@@ -412,8 +426,9 @@ export function AdminModal({
       await updateDoc(orderRef, updatePayload);
 
       let successLabel = newStatus.toUpperCase();
-      if (newStatus === 'preparing') successLabel = 'PACKING (ACCEPTED)';
-      if (newStatus === 'out for delivery') successLabel = 'ON THE WAY';
+      if (newStatus === 'accepted') successLabel = 'ACCEPTED';
+      if (newStatus === 'packaging' || newStatus === 'preparing') successLabel = 'PACKAGING';
+      if (newStatus === 'out for delivery' || newStatus === 'on the way') successLabel = 'ON THE WAY';
       if (newStatus === 'delivered') successLabel = 'DELIVERED';
       if (newStatus === 'return_approved') successLabel = 'RETURN APPROVED';
       if (newStatus === 'return_rejected') successLabel = 'RETURN REJECTED';
@@ -424,6 +439,21 @@ export function AdminModal({
       onShowError('Update Failed', getFriendlyErrorMessage(err));
     } finally {
       setUpdatingOrderId(null);
+    }
+  };
+
+  const handleDeleteOrder = async (orderId: string) => {
+    if (deletingOrderId) return;
+    setDeletingOrderId(orderId);
+    try {
+      await deleteDoc(doc(db, 'orders', orderId));
+      onShowSuccess('Order Deleted', `Order #${orderId.slice(-6).toUpperCase()} was permanently deleted from Firestore.`);
+      setConfirmDeleteOrderId(null);
+    } catch (err: any) {
+      console.error('[Admin Order Delete Error]:', err);
+      onShowError('Delete Failed', getFriendlyErrorMessage(err));
+    } finally {
+      setDeletingOrderId(null);
     }
   };
 
@@ -553,9 +583,10 @@ export function AdminModal({
       await setDoc(doc(db, 'shopControl', 'status'), {
         appLogoUrl: logoInput.trim(),
         supportNumber: supportInput.trim(),
+        storeLocation: storeCoordsInput || null,
         updatedAt: serverTimestamp()
       }, { merge: true });
-      onShowSuccess('Settings Saved', 'Logo URL and support number have been updated.');
+      onShowSuccess('Settings Saved', 'Logo URL, support number, and store hub location have been updated.');
     } catch (err: any) {
       onShowError('Settings Error', getFriendlyErrorMessage(err));
     }
@@ -968,21 +999,58 @@ export function AdminModal({
                         <div className="flex flex-wrap gap-2 pt-1 border-t border-slate-700/60">
                           {/* Standard Delivery State Flow */}
                           {(normStatus === 'placed' || normStatus === 'pending') && (
-                            <button
-                              type="button"
-                              disabled={updatingOrderId === order.id}
-                              onClick={() => handleUpdateOrderStatus(order.id, 'preparing')}
-                              className="flex-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold py-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-98"
-                            >
-                              {updatingOrderId === order.id ? (
-                                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                              )}
-                              <span>Accept Order (Start Packing)</span>
-                            </button>
+                            <div className="flex flex-1 flex-col sm:flex-row gap-2">
+                              <button
+                                type="button"
+                                disabled={updatingOrderId === order.id}
+                                onClick={() => handleUpdateOrderStatus(order.id, 'accepted')}
+                                className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold py-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-98"
+                              >
+                                {updatingOrderId === order.id ? (
+                                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                )}
+                                <span>Accept Order</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={updatingOrderId === order.id}
+                                onClick={() => handleUpdateOrderStatus(order.id, 'packaging')}
+                                className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold py-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-98"
+                              >
+                                <Package className="w-3.5 h-3.5" />
+                                <span>Start Packaging</span>
+                              </button>
+                            </div>
                           )}
-                          {normStatus === 'preparing' && (
+                          {normStatus === 'accepted' && (
+                            <div className="flex flex-1 flex-col sm:flex-row gap-2">
+                              <button
+                                type="button"
+                                disabled={updatingOrderId === order.id}
+                                onClick={() => handleUpdateOrderStatus(order.id, 'packaging')}
+                                className="flex-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold py-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-98"
+                              >
+                                {updatingOrderId === order.id ? (
+                                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                  <Package className="w-3.5 h-3.5" />
+                                )}
+                                <span>Start Packaging</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={updatingOrderId === order.id}
+                                onClick={() => handleUpdateOrderStatus(order.id, 'out for delivery')}
+                                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold py-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-98"
+                              >
+                                <Truck className="w-3.5 h-3.5" />
+                                <span>Send for Delivery (On The Way)</span>
+                              </button>
+                            </div>
+                          )}
+                          {(normStatus === 'packaging' || normStatus === 'preparing' || normStatus === 'packing') && (
                             <div className="flex flex-1 flex-col sm:flex-row gap-2">
                               <button
                                 type="button"
@@ -1008,7 +1076,7 @@ export function AdminModal({
                               </button>
                             </div>
                           )}
-                          {(normStatus === 'out for delivery' || normStatus === 'out_for_delivery') && (
+                          {(normStatus === 'out for delivery' || normStatus === 'out_for_delivery' || normStatus === 'on the way' || normStatus === 'on_the_way') && (
                             <button
                               type="button"
                               disabled={updatingOrderId === order.id}
@@ -1092,6 +1160,52 @@ export function AdminModal({
                                 Cancel Order
                               </button>
                             )}
+
+                          {/* Delete Order button for finalized (delivered, cancelled, returned) orders */}
+                          {(normStatus === 'delivered' ||
+                            normStatus === 'cancelled' ||
+                            normStatus === 'returned' ||
+                            normStatus === 'return_approved' ||
+                            normStatus === 'return_rejected') && (
+                            <div className="pt-1">
+                              {confirmDeleteOrderId === order.id ? (
+                                <div className="flex items-center gap-1.5 w-full">
+                                  <button
+                                    type="button"
+                                    disabled={deletingOrderId === order.id}
+                                    onClick={() => handleDeleteOrder(order.id)}
+                                    className="flex-1 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-black py-2 px-3 rounded-xl transition-all cursor-pointer shadow-sm active:scale-98 flex items-center justify-center gap-1.5"
+                                  >
+                                    {deletingOrderId === order.id ? (
+                                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>Confirm Delete</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={deletingOrderId === order.id}
+                                    onClick={() => setConfirmDeleteOrderId(null)}
+                                    className="bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-bold py-2 px-3 rounded-xl transition-all cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={deletingOrderId === order.id}
+                                  onClick={() => setConfirmDeleteOrderId(order.id)}
+                                  className="w-full bg-red-500/15 hover:bg-red-500/30 border border-red-500/30 text-red-300 hover:text-red-200 disabled:opacity-50 text-xs font-bold py-2 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-98"
+                                  title="Permanently delete this order from Firestore"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                                  <span>Delete Order</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -1426,8 +1540,8 @@ export function AdminModal({
                   <p className="text-[10px] font-bold text-blue-400 uppercase mt-1">Active Deliveries</p>
                   <h4 className="text-lg font-black text-blue-300">
                     {orders.filter((o) => {
-                      const s = (o.status || '').toLowerCase();
-                      return s === 'placed' || s === 'preparing' || s === 'out for delivery';
+                      const s = (o.status || '').toLowerCase().trim();
+                      return s === 'placed' || s === 'pending' || s === 'accepted' || s === 'packaging' || s === 'preparing' || s === 'packing' || s === 'out for delivery' || s === 'out_for_delivery' || s === 'on the way' || s === 'on_the_way';
                     }).length}
                   </h4>
                 </div>
@@ -2248,6 +2362,24 @@ export function AdminModal({
                     className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs outline-none"
                   />
                 </div>
+
+                {isMapsEnabled && (
+                  <div>
+                    <label className="text-xs text-slate-400 font-bold block mb-1">
+                      Store Dispatch Hub Pin (For Live Delivery Route & ETA)
+                    </label>
+                    <DeliveryMapPicker
+                      location={storeCoordsInput}
+                      addressText={storeAddressInput}
+                      lang={lang}
+                      isMapsEnabled={isMapsEnabled}
+                      theme="dark"
+                      pinLabel="Zypsomart Store Dispatch Hub"
+                      onLocationChange={setStoreCoordsInput}
+                      onAddressSelect={setStoreAddressInput}
+                    />
+                  </div>
+                )}
 
                 <button
                   type="button"
